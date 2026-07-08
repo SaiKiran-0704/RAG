@@ -2,25 +2,79 @@ from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 import os
 
-load_dotenv()
 
-api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError(
-        "Missing API key. Add OPENROUTER_API_KEY or OPENAI_API_KEY to your .env file."
+def is_placeholder(value: str | None) -> bool:
+    if not value:
+        return True
+    normalized = value.strip().lower()
+    placeholder_markers = [
+        "your_",
+        "your-",
+        "placeholder",
+        "example",
+        "replace_me",
+        "changeme",
+        "api_key_here",
+    ]
+    return any(marker in normalized for marker in placeholder_markers)
+
+
+def is_malformed_api_key(value: str | None) -> bool:
+    if not value:
+        return True
+    stripped = value.strip()
+    if not stripped:
+        return True
+    if "=" in stripped or " " in stripped or "\n" in stripped:
+        return True
+    return False
+
+
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+
+provider = os.getenv("LLM_PROVIDER", "").strip().lower()
+openrouter_key = os.getenv("OPENROUTER_API_KEY")
+openai_key = os.getenv("OPENAI_API_KEY")
+
+if not provider:
+    if openrouter_key and not is_placeholder(openrouter_key) and not is_malformed_api_key(openrouter_key):
+        provider = "openrouter"
+    elif openai_key and not is_placeholder(openai_key) and not is_malformed_api_key(openai_key):
+        provider = "openai"
+    else:
+        raise ValueError(
+            "No valid API key found. Replace the placeholder or malformed value in .env with your real OPENROUTER_API_KEY or OPENAI_API_KEY."
+        )
+
+if provider == "openrouter":
+    if not openrouter_key or is_placeholder(openrouter_key) or is_malformed_api_key(openrouter_key):
+        raise ValueError(
+            "LLM_PROVIDER=openrouter was selected, but OPENROUTER_API_KEY is missing, still contains a placeholder, or is malformed. Replace it with your real OpenRouter key."
+        )
+
+    llm = ChatOpenAI(
+        model="openai/gpt-3.5-turbo",
+        temperature=0,
+        openai_api_key=openrouter_key,
+        openai_api_base="https://openrouter.ai/api/v1",
+        default_headers={
+            "HTTP-Referer": "http://localhost",
+            "X-Title": "tesla-chunking-test",
+        },
     )
+elif provider == "openai":
+    if not openai_key or is_placeholder(openai_key) or is_malformed_api_key(openai_key):
+        raise ValueError(
+            "LLM_PROVIDER=openai was selected, but OPENAI_API_KEY is missing, still contains a placeholder, or is malformed. Replace it with your real OpenAI key."
+        )
 
-# Initialize the LLM via OpenRouter
-llm = ChatOpenAI(
-    model="openai/gpt-3.5-turbo",  # or any model OpenRouter supports
-    temperature=0,
-    openai_api_key=api_key,
-    openai_api_base="https://openrouter.ai/api/v1",
-    default_headers={
-        "HTTP-Referer": "http://localhost",  # optional, some models require this
-        "X-Title": "tesla-chunking-test",    # optional
-    },
-)
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0,
+        openai_api_key=openai_key,
+    )
+else:
+    raise ValueError("Unsupported LLM_PROVIDER. Use 'openrouter' or 'openai'.")
 
 # Tesla text to chunk
 tesla_text = """Tesla's Q3 Results
